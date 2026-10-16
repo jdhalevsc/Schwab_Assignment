@@ -330,7 +330,12 @@ class TestRunner {
       toBeNull:       ()   => { if(val!==null) throw new Error(`Expected null, got ${val}`); },
       toBeGreaterThan:exp  => { if(val<=exp) throw new Error(`Expected >${exp}, got ${val}`); },
       toBeLessThan:   exp  => { if(val>=exp) throw new Error(`Expected <${exp}, got ${val}`); },
-      toContain:      exp  => { if(!JSON.stringify(val).includes(JSON.stringify(exp))) throw new Error(`Expected to contain ${exp}`); },
+      toContain:      exp  => {
+        const contains = typeof val === "string"
+          ? typeof exp === "string" && val.includes(exp)
+          : Array.isArray(val) && val.includes(exp);
+        if (!contains) throw new Error(`Expected ${JSON.stringify(val)} to contain ${JSON.stringify(exp)}`);
+      },
       toHaveLength:   exp  => { if(val?.length!==exp) throw new Error(`Expected length ${exp}, got ${val?.length}`); },
       toMatch:        re   => { if(!re.test(String(val))) throw new Error(`Expected to match ${re}`); },
     };
@@ -538,6 +543,21 @@ class TestRunner {
         al.record("CREATE","a",{}); al.record("CREATE","b",{}); al.record("DELETE","a",{});
         const c = al.counts();
         expect(c.CREATE).toBe(2); expect(c.DELETE).toBe(1);
+      });
+    });
+
+    this.describe("Chatbot — Predefined Questions", it => {
+      it("answers predefined questions without an AI request", ({expect}) => {
+        expect(getLocalChatAnswer("How many links do I have?")).toMatch(/links/);
+      });
+      it("normalizes capitalization and punctuation", ({expect}) => {
+        expect(getLocalChatAnswer("EXPLAIN HTTP 302 VS 301!")).toMatch(/302/);
+      });
+      it("clarifies the documented API is not a live endpoint", ({expect}) => {
+        expect(getLocalChatAnswer("What does the POST endpoint return?")).toMatch(/prototype/);
+      });
+      it("leaves unrecognized questions for the AI path", ({expect}) => {
+        expect(getLocalChatAnswer("Tell me something unrelated")).toBeNull();
       });
     });
 
@@ -2381,6 +2401,59 @@ const QUICK_SUGGESTIONS = [
   "Explain HTTP 302 vs 301",
 ];
 
+function getLocalChatAnswer(question) {
+  const normalize = value => value.trim().toLowerCase().replace(/[?!.,]/g, "").replace(/\s+/g, " ");
+  const key = normalize(question);
+  const links = store.getAll();
+  const stats = store.stats();
+  const topLink = [...links].sort((a, b) => b.clicks - a.clicks)[0];
+
+  const answers = {
+    "how many links do i have?": () =>
+      `There are ${stats.total} links in the in-memory store: ${stats.active} active and ${stats.expired} expired.`,
+    "what's my top performing link?": () => topLink
+      ? `/${topLink.code} is currently the top link by clicks with ${fmt(topLink.clicks)} clicks${topLink.title ? ` (${topLink.title})` : ""}.`
+      : "There are no links to rank yet.",
+    "explain the rate limiter": () =>
+      `Link creation is limited to ${RATE_LIMIT} attempts per ${RATE_WINDOW_MS / 1000} seconds using a sliding window. It removes timestamps outside the window, then blocks requests once the limit is reached. In this prototype it runs in browser memory, so it is not a server-side or cross-user security control.`,
+    "how do i shorten a url?": () =>
+      "Open Shorten, enter an http:// or https:// URL, optionally add an alias and advanced metadata, then select Shorten URL. The form validates the input and runs the configured URL safety checks before creating a link. This demo keeps links in memory, so they reset on reload.",
+    "what guardrails are active?": () =>
+      "The app validates URL format, http/https protocols, hostname and private/local addresses; caps URLs at 2,048 characters; validates aliases and blocks reserved names; validates tags and sanitizes titles; rate-limits link creation; generates codes with crypto.getRandomValues(); lazily expires links; whitelists editable fields; detects alias collisions; and records operations in an in-memory audit log. VirusTotal and Safe Browsing are simulated while integration mock mode is enabled.",
+    "explain http 302 vs 301": () =>
+      "A 302 is a temporary redirect and is generally not cached permanently, so later requests can reach the service for updated destinations and click tracking. A 301 is permanent and may be cached by browsers, which can bypass later tracking or changes. This app documents 302 as its intended redirect behavior; its current click action is only a local simulation, not a live redirect endpoint.",
+    "how many active links?": () =>
+      `There are ${stats.active} active links out of ${stats.total} links in the in-memory store.`,
+    "what's the most clicked?": () => topLink
+      ? `/${topLink.code} has the most clicks (${fmt(topLink.clicks)})${topLink.title ? ` — ${topLink.title}` : ""}.`
+      : "There are no links to rank yet.",
+    "how do i delete a link?": () =>
+      "Open Links, find the link, and select its trash-can action. Confirm the prompt to delete it. The deletion is recorded in the in-memory audit log; the demo data resets when the page reloads.",
+    "top link by clicks": () => topLink
+      ? `/${topLink.code} is currently the top link by clicks with ${fmt(topLink.clicks)} clicks${topLink.title ? ` (${topLink.title})` : ""}.`
+      : "There are no links to rank yet.",
+    "traffic by country": () => {
+      const countries = Object.entries(store.getAnalytics(null).byCountry)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5);
+      return countries.length
+        ? `Top countries by recorded clicks: ${countries.map(([country, clicks]) => `${country} (${fmt(clicks)})`).join(", ")}. These are demo analytics generated in the browser.`
+        : "There is no click data to break down by country yet.";
+    },
+    "run anomaly check": () =>
+      "Anomaly detection uses the Anthropic AI service and cannot be answered by the offline quick-response handler. The current prototype calls that service directly from the browser, so anomaly analysis needs a working AI connection; URL-integration mock mode does not enable it.",
+    "explain http 302 redirect": () =>
+      "A 302 is a temporary redirect and is generally not cached permanently, allowing later requests to reach the service for click tracking or destination changes. A 301 is permanent and may be cached. This prototype documents 302 behavior, but does not run a real redirect endpoint.",
+    "what does the post endpoint return?": () =>
+      "The API reference documents POST /api/v1/shorten as returning a link object with code, short_url, long_url, clicks (initially 0), created_at, and expires_at (null when the link never expires). This is documentation only—the current prototype does not provide a live REST API endpoint.",
+    "what errors can occur?": () =>
+      "The documented shorten endpoint can return 400 for invalid URLs, protocols, private/local addresses, or aliases; 409 when an alias is already taken; and 429 when the rate limit is exceeded (with reset_in). These are documented API responses; this prototype has no live REST server.",
+  };
+
+  const match = Object.entries(answers).find(([suggestion]) => normalize(suggestion) === key);
+  return match ? match[1]() : null;
+}
+
 function buildSystemPrompt() {
   const s     = store.stats();
   const links = store.getAll().slice(0, 10);
@@ -2455,6 +2528,11 @@ function Chatbot({ currentView }) {
 
     const userMsg = { role:"user", text:q, ts:Date.now() };
     setMsgs(m => [...m, userMsg]);
+    const localAnswer = getLocalChatAnswer(q);
+    if (localAnswer) {
+      setMsgs(m => [...m, { role:"bot", text:localAnswer, ts:Date.now() }]);
+      return;
+    }
     setLoading(true);
 
     try {

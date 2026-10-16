@@ -77,24 +77,30 @@ Built to demonstrate:
 ## Architecture
 
 ```
-User clicks go.schwab.com/code
-         ↓
-  CloudFront Edge         ← cache hit: ~4ms
-         ↓
-   API Gateway            ← auth, rate limit
-         ↓
-  Redirect Service        ← FastAPI
-         ↓
-  Redis (ElastiCache)     ← <1ms lookup, TTL native
-         ↓
-  HTTP 302 Response       ← NOT 301 — analytics must count every click
-         ↓ (async, non-blocking)
-  Click Event → Kafka → Analytics Consumer → PostgreSQL
-                                           → Slack
-                                           → Compliance Webhook
+index.html → src/main.jsx → App.jsx (React SPA in the browser)
+                                  │
+                                  ├─ Shorten view → ValidationGate → RateLimiter
+                                  │                    → URL safety checks (mock by default)
+                                  │                    → URLStore + AuditLog (in memory)
+                                  │                    → Compliance webhook (mock by default)
+                                  │
+                                  ├─ Links view → URLStore.click() (simulated click)
+                                  │
+                                  ├─ Analytics view → in-memory aggregates
+                                  │                    → Claude anomaly analysis
+                                  │                    → Slack/compliance adapters (mock)
+                                  │
+                                  └─ AI features + chatbot → Anthropic Messages API
 ```
 
-### Key Decisions
+The diagram in [`Architecture.jsx`](./Architecture.jsx) describes the implementation
+that runs in this repository. The prototype has no backend, database, real redirect
+endpoint, or persistent storage; link data and audit events reset when the page reloads.
+Claude requests are live browser network calls. VirusTotal, Safe Browsing, Slack, and
+the compliance webhook use simulated responses while `INTEGRATIONS_CONFIG.MOCK_MODE`
+is `true`.
+
+### Production Design Decisions (Target, Not Connected to the Prototype)
 
 | Decision | Choice | Reason |
 |---|---|---|
@@ -106,7 +112,7 @@ User clicks go.schwab.com/code
 | VT + SB check pattern | **Promise.allSettled** | Parallel, not sequential; either failure doesn't mask other |
 | Safety check failure | **Fail-open** | API outage should not take down shortener; only block on confirmed threat |
 
-### Production Stack
+### Production Stack (Proposed)
 ```
 Frontend:    React (static → S3 + CloudFront)
 Redirect:    FastAPI + Uvicorn (ECS Fargate)
@@ -124,7 +130,7 @@ Compliance:  Splunk HEC / AWS EventBridge webhook
 ## Project Structure
 
 ```
-schwablinks/
+Schwab_Assignment/
 ├── src/
 │   ├── App.jsx              # Main application (2,600+ lines)
 │   │   ├── ValidationGate   # All input validation — URL, slug, tags, title
