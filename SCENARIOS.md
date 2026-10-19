@@ -7,7 +7,7 @@
 
 ## Scenario 1: Greenfield — New System from Scratch
 
-**Context:** Build SchwabLinks from zero. No existing codebase. Financial services context — all links may carry regulated content, so guardrails are non-negotiable from day one.
+**Context:** Build Schwab_Assignment from zero. No existing codebase. Financial services context — all links may carry regulated content, so guardrails are non-negotiable from day one.
 
 ### Requirement Interpretation
 Raw: "Build a URL shortener with core APIs, analytics, and reliability features."  
