@@ -149,8 +149,6 @@ Schwab_Assignment/
 │   ├── SCENARIOS.md         # Three engineering scenarios (Greenfield/Brownfield/Ambiguous)
 │   ├── API.md               # REST API reference
 │   └── DECISIONS.md         # Architecture decision records (ADRs)
-├── scripts/
-│   └── deploy.sh            # GitHub → ECR → ECS deployment script
 └── README.md
 ```
 
