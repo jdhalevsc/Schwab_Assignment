@@ -1985,7 +1985,7 @@ function TestsView() {
     {!res&&<div className="card" style={{textAlign:"center",padding:44}}>
       <div style={{fontSize:36,marginBottom:12}}>🧪</div>
       <div style={{color:T.textMuted,fontSize:13}}>Press "Run All Tests" to execute.</div>
-      <div style={{color:T.textMuted,fontSize:11,marginTop:6}}>34 tests across 5 suites · URLStore · RateLimiter · ValidationGate · AuditLog</div>
+      <div style={{color:T.textMuted,fontSize:11,marginTop:6}}>55 tests across 9 suites · URLStore · RateLimiter · ValidationGate · AuditLog</div>
     </div>}
     {res&&res.map(suite=><div key={suite.name} className="card" style={{padding:"14px 18px",marginBottom:10}}>
       <div className="suite-name">
@@ -2108,7 +2108,7 @@ function HealthView() {
     {name:"Audit Log",     metric:`${auditLog.getAll().length} operations logged`,dot:"dot-g"},
     {name:"ValidationGate",metric:"XSS · SSRF · Protocol · Reserved",           dot:"dot-g"},
     {name:"QR Generator",  metric:"Crypto-seeded · CSS render",                  dot:"dot-g"},
-    {name:"Test Suite",    metric:"34 tests · 5 suites · Jest-compatible",       dot:"dot-g"},
+    {name:"Test Suite",    metric:"55 tests · 9 suites · Jest-compatible",       dot:"dot-g"},
   ];
   return <div>
     <SectionHeader title="System Health" sub={`Updated ${new Date(ts).toLocaleTimeString()} · refreshes every 3s`}
@@ -2123,7 +2123,7 @@ function HealthView() {
       <div className="card-title">📋 Final Engineering Summary</div>
       <div style={{fontSize:12,color:T.textSub,lineHeight:1.85}}>
         <p style={{marginBottom:8}}><strong style={{color:T.text}}>Plan / Rationale:</strong> Built as a React SPA with isolated service classes (URLStore, RateLimiter, AuditLog) and a dedicated ValidationGate. Adapter pattern enables production swap to Redis + PostgreSQL without caller changes. Sliding window rate limiter prevents bulk link generation — critical in a financial services context where links may carry regulated content.</p>
-        <p style={{marginBottom:8}}><strong style={{color:T.text}}>Artifacts:</strong> Working prototype (8 views), Architecture diagram, Engineering Log (AI traceability, 8 entries), Unit test suite (34 tests / 5 suites), Three scenario writeups, API reference (HTTP 302), Live audit trail, Guardrail dashboard.</p>
+        <p style={{marginBottom:8}}><strong style={{color:T.text}}>Artifacts:</strong> Working prototype (8 views), Architecture diagram, Engineering Log (AI traceability, 8 entries), Unit test suite (55 tests / 9 suites), Three scenario writeups, API reference (HTTP 302), Live audit trail, Guardrail dashboard.</p>
         <p style={{marginBottom:8}}><strong style={{color:T.text}}>Compliance alignment:</strong> Immutable audit log supports SEC Rule 17a-4 record-keeping requirements. All link destinations validated against SSRF blocklist — no internal Schwab infrastructure can be targeted. Rate limiting prevents bulk link generation that could be used to distribute phishing URLs at scale. TTL enforcement ensures regulated content links expire as required.</p>
         <p style={{marginBottom:8}}><strong style={{color:T.text}}>Risks / Trade-offs:</strong> In-memory store resets on refresh (acceptable for prototype — production: Redis + PostgreSQL). QR codes are CSS simulation (production: qrcode.js). Analytics synchronous (production: Kafka off redirect path). No auth layer (production: Schwab SSO / OAuth2 + API key scopes).</p>
         <p><strong style={{color:T.text}}>Production path:</strong> FastAPI + Redis (redirect, &lt;1ms) + PostgreSQL (analytics + audit, Multi-AZ) + CloudFront (edge cache, 4ms) + Kafka (click events, async) + Prometheus/Grafana (observability) + Schwab SSO integration. All adapter swaps are caller-transparent — zero API contract changes.</p>
@@ -2476,7 +2476,7 @@ DASHBOARD CAPABILITIES:
 - Links tab: view/edit/delete all links, simulate clicks, edit tags inline
 - Analytics tab: click "🔍 AI Anomaly Check" to detect traffic spikes or suspicious patterns
 - Scenarios tab: three engineering scenarios (Greenfield, Brownfield, Ambiguous)
-- Tests tab: run 34 live unit tests across 5 test suites
+- Tests tab: run 55 live unit tests across 9 test suites
 - Eng Log tab: full AI traceability record — prompts, edits, rationale
 - Health tab: live system status + final engineering summary
 - API tab: complete REST API reference

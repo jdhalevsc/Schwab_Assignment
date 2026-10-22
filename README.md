@@ -144,7 +144,7 @@ Schwab_Assignment/
 │   │   ├── Chatbot          # Context-aware dashboard assistant
 │   │   └── App (root)       # Nav, routing, Chatbot mount
 │   └── Architecture.jsx     # Interactive system design diagram
-├── docs/
+├── docs
 │   ├── ENGINEERING_LOG.md   # AI traceability — prompt/edit/rationale for every module
 │   ├── SCENARIOS.md         # Three engineering scenarios (Greenfield/Brownfield/Ambiguous)
 │   ├── API.md               # REST API reference
@@ -158,7 +158,7 @@ Schwab_Assignment/
 
 ## Test Suite
 
-34 unit tests across 5 suites — run live in the **Tests** tab:
+55 unit tests across 9 suites — run live in the **Tests** tab:
 
 | Suite | Tests | Covers |
 |---|---|---|
@@ -167,8 +167,10 @@ Schwab_Assignment/
 | URLStore — Analytics | 3 | aggregation, byRef, byCountry |
 | RateLimiter | 6 | sliding window, blocking, remaining count |
 | ValidationGate — URL | 12 | XSS, SSRF, protocol, length, format |
-| ValidationGate — Alias/Tags | 9 | regex, reserved words, length, sanitize |
+| ValidationGate — Alias | 9 | regex, reserved words, length |
+| ValidationGate - Tags & Sanitize | 4 | tags, sanitize
 | AuditLog | 3 | record, filter, count operations |
+| Chatbot - Predefined Questions | 4 | questions, grammer, API |
 
 All tests are Jest-compatible — copy to a Jest test file and run with no changes.
 
