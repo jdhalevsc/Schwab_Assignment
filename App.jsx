@@ -561,6 +561,27 @@ class TestRunner {
       });
     });
 
+    this.describe("URL Suggestions", it => {
+      it("extracts a readable title and tags from a URL", ({expect}) => {
+        const suggestions = suggestURLMetadata("https://example.com/investment/roth-ira");
+        expect(suggestions.title).toBe("Roth Ira");
+        expect(suggestions.tags).toContain("investment");
+      });
+      it("suggests aliases that pass alias validation", ({expect}) => {
+        const suggestions = suggestURLMetadata("https://example.com/investment/roth-ira");
+        expect(suggestions.aliases.length).toBe(4);
+        expect(suggestions.aliases.every(alias => ValidationGate.alias(alias).ok)).toBeTruthy();
+      });
+      it("does not suggest aliases already in use", ({expect}) => {
+        const suggestions = suggestURLMetadata("https://example.com/invest");
+        expect(suggestions.aliases.includes("invest")).toBeFalsy();
+      });
+      it("returns no unsupported expiry claim", ({expect}) => {
+        const suggestions = suggestURLMetadata("https://example.com/investment/roth-ira");
+        expect(suggestions.ttl_suggestion === undefined).toBeTruthy();
+      });
+    });
+
     return this.suites;
   }
 }
@@ -1027,7 +1048,7 @@ function SectionHeader({ title, sub, right }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// AI ENGINE  — disciplined prompting, structured JSON output, guardrailed
+// AI ENGINE
 // ════════════════════════════════════════════════════════════════════════════
 async function callClaude(systemPrompt, userMsg) {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -1045,41 +1066,55 @@ async function callClaude(systemPrompt, userMsg) {
   return data.content?.[0]?.text ?? "";
 }
 
-// Feature 1 — URL Summarizer + Tag Extractor
-// Prompt constraint: JSON only, no prose, max 5 tags, slug-safe tag format
-async function aiSummarizeURL(url) {
-  const system = `You are a URL metadata extractor. The user gives you a URL.
-Return ONLY valid JSON — no markdown, no explanation, no code fences.
-Schema: { "title": string (max 80 chars, plain English), "tags": string[] (max 5 items, lowercase, alphanumeric-hyphen only, each max 20 chars), "ttl_suggestion": "1 hour"|"24 hours"|"7 days"|"30 days"|"Never", "ttl_reason": string (max 60 chars) }
-Infer from the URL path and domain. If uncertain, use conservative values.
-Never fabricate content. If you cannot determine a field, use null.`;
-  const raw = await callClaude(system, `URL: ${url}`);
-  // Strip any accidental markdown fences before parsing
-  const clean = raw.replace(/```json|```/g,"").trim();
-  return JSON.parse(clean);
+function suggestURLMetadata(rawURL) {
+  const parsed = new URL(rawURL);
+  const host = parsed.hostname.replace(/^www\./i, "");
+  const pathName = parsed.pathname.split("/").filter(Boolean).pop()
+    ?.replace(/\.[a-z0-9]{1,8}$/i, "")
+    .replace(/[-_]+/g, " ");
+  const titleSource = pathName || host.split(".")[0];
+  const title = titleSource
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ")
+    .slice(0, MAX_TITLE_LENGTH);
+  const stopWords = new Set(["www", "com", "org", "net", "html", "index"]);
+  const tags = [...new Set(`${host} ${parsed.pathname}`.toLowerCase()
+    .match(/[a-z0-9]+/g) ?? [])]
+    .filter(word => word.length >= 3 && !stopWords.has(word))
+    .slice(0, 5);
+
+  const toAlias = value => value.toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 20)
+    .replace(/-+$/g, "");
+  const hostSlug = toAlias(host.split(".")[0]) || "website";
+  const titleSlug = toAlias(title);
+  const aliases = [];
+  const addAlias = value => {
+    if (aliases.length >= 4) return;
+    const candidate = toAlias(value);
+    if (candidate.length >= MIN_ALIAS_LENGTH &&
+        /^[a-z0-9][a-z0-9-]{2,19}$/.test(candidate) &&
+        !RESERVED.has(candidate) &&
+        !store.has(candidate) &&
+        !aliases.includes(candidate)) {
+      aliases.push(candidate);
+    }
+  };
+
+  [titleSlug, hostSlug, `${titleSlug}-${hostSlug}`, `visit-${hostSlug}`, `read-${hostSlug}`]
+    .forEach(addAlias);
+  for (let suffix = 1; aliases.length < 4 && suffix <= 1000; suffix++) {
+    addAlias(`link-${hostSlug.slice(0, 10)}-${suffix}`);
+  }
+
+  return { title, tags, aliases };
 }
 
-// Feature 2 — Alias Suggester
-// Prompt constraint: exactly 4 options, slug-safe, no reserved words, JSON only
-async function aiSuggestAliases(url, title) {
-  const system = `You are a URL alias generator. Given a URL and optional title, suggest short memorable aliases.
-Return ONLY valid JSON — no markdown, no explanation.
-Schema: { "aliases": string[] } — exactly 4 items.
-Rules: each alias 3-20 chars, lowercase, letters/numbers/hyphens only, no spaces, no underscores at start.
-Do NOT use: ${[...RESERVED].join(", ")}.
-Make them memorable, relevant to the URL content, and easy to type.`;
-  const raw = await callClaude(system, `URL: ${url}\nTitle: ${title||"unknown"}`);
-  const clean = raw.replace(/```json|```/g,"").trim();
-  const parsed = JSON.parse(clean);
-  // Guardrail: filter out any reserved words or invalid slugs that slipped through
-  return parsed.aliases
-    .filter(a => /^[a-zA-Z0-9][a-zA-Z0-9-]{2,19}$/.test(a))
-    .filter(a => !RESERVED.has(a.toLowerCase()))
-    .filter(a => !store.has(a))
-    .slice(0, 4);
-}
-
-// Feature 3 — Anomaly Detection
+// Feature 1 — Anomaly Detection
 // Prompt constraint: JSON only, structured risk assessment
 async function aiDetectAnomalies(links, analytics) {
   const system = `You are a URL analytics anomaly detector for a link shortener service.
@@ -1288,31 +1323,20 @@ function ShortenView({ onCreated }) {
   const [busy,setBusy]       = useState(false);
   const [errors,setErrors]   = useState({});
   const [result,setResult]   = useState(null);
-  const [aiLoading,setAiLoading] = useState(false);
   const [aiSuggestions,setAiSuggestions] = useState(null);
-  const [aiError,setAiError] = useState(null);
   const [safety,setSafety]   = useState(null);   // null | "checking" | {safe, virusTotal, safeBrowsing}
   const [safetyErr,setSafetyErr] = useState(null);
   const [webhookSent,setWebhookSent] = useState(false);
   const {show,msg,icon,toast} = useToast();
 
-  const runAI = async () => {
+  const runAI = () => {
     const urlR = ValidationGate.url(url);
     if (!urlR.ok) { setErrors({url: urlR.error}); return; }
-    setAiLoading(true); setAiError(null); setAiSuggestions(null);
-    try {
-      // Run summarizer and alias suggester in parallel
-      const [meta, aliases] = await Promise.all([
-        aiSummarizeURL(urlR.value),
-        aiSuggestAliases(urlR.value, null),
-      ]);
-      setAiSuggestions({ ...meta, aliases });
-      setAdv(true); // open advanced panel to show suggestions
-      toast("AI analysis complete","✨");
-    } catch(e) {
-      setAiError("AI unavailable — fill in manually or try again.");
-    }
-    setAiLoading(false);
+    setAiSuggestions(null);
+    const suggestions = suggestURLMetadata(urlR.value);
+    setAiSuggestions(suggestions);
+    setAdv(true);
+    toast("URL suggestions ready","✨");
   };
 
   const applyAISuggestion = (field, value) => {
@@ -1415,7 +1439,7 @@ function ShortenView({ onCreated }) {
       <div className="hero-h">URL Shortener<br/></div>
       <div className="hero-s">Compliant · Audited · Rate-limited · AI-powered · SEC-safe</div>
       <div className="hero-pills">
-        {["✨ AI Auto-fill","🔍 Anomaly Detection","Full Audit Trail","HTTP 302 Redirects","Sliding Window Rate Limit","Lazy TTL Expiry","Crypto Code Gen","SSRF Protection","XSS Prevention"].map(p=><span key={p} className="hero-pill">{p}</span>)}
+        {["Local URL Suggestions","🔍 Anomaly Detection","Full Audit Trail","HTTP 302 Redirects","Sliding Window Rate Limit","Lazy TTL Expiry","Crypto Code Gen","SSRF Protection","XSS Prevention"].map(p=><span key={p} className="hero-pill">{p}</span>)}
       </div>
     </div>
 
@@ -1431,25 +1455,22 @@ function ShortenView({ onCreated }) {
             value={url} onChange={e=>{setUrl(e.target.value);validate("url",e.target.value);setAiSuggestions(null);}}
             onKeyDown={e=>e.key==="Enter"&&submit()}/>
           <button className="btn btn-ai" onClick={runAI}
-            disabled={aiLoading||!url||!!errors.url}
-            title="AI: auto-fill title, tags, alias suggestions and TTL recommendation"
+            disabled={!url||!!errors.url}
+            title="Create local title, tag, and alias suggestions from the URL"
             style={{
-              background: aiLoading?"#E8ECF2":"linear-gradient(135deg,${T.accent},${T.navy})",
+              background:"linear-gradient(135deg,${T.accent},${T.navy})",
               color:"#fff", border:"none", borderRadius:8, padding:"9px 14px",
-              fontSize:12, fontWeight:600, cursor:aiLoading||!url?"not-allowed":"pointer",
+              fontSize:12, fontWeight:600, cursor:!url?"not-allowed":"pointer",
               display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",
               opacity:(!url||!!errors.url)?0.5:1, transition:"all .15s",
-              boxShadow:aiLoading?"none":"0 2px 8px rgba(0,160,223,.3)",
+              boxShadow:"0 2px 8px rgba(0,160,223,.3)",
             }}>
-            {aiLoading
-              ? <><span style={{display:"inline-block",animation:"spin 1s linear infinite"}}>⟳</span> Analyzing…</>
-              : <>✨ AI Analyze</>}
+            <>✨ Suggest from URL</>
           </button>
         </div>
         {errors.url&&<div className="ferr">{errors.url}</div>}
         {url&&!errors.url&&ValidationGate.url(url).ok&&!aiSuggestions&&
-          <div style={{fontSize:10,color:T.green,marginTop:3}}>✓ Valid URL · click ✨ AI Analyze to auto-fill fields</div>}
-        {aiError&&<div className="ferr">{aiError}</div>}
+          <div style={{fontSize:10,color:T.green,marginTop:3}}>✓ Valid URL · create local title, tag, and alias suggestions</div>}
       </div>
 
       {/* AI SUGGESTIONS PANEL */}
@@ -1458,7 +1479,7 @@ function ShortenView({ onCreated }) {
         border:"1px solid rgba(0,160,223,.25)",borderRadius:10,padding:16,marginBottom:14,
       }}>
         <div style={{fontSize:11,fontWeight:700,color:"${T.accent}",marginBottom:12,display:"flex",alignItems:"center",gap:6}}>
-          ✨ AI Suggestions <span style={{fontSize:10,fontWeight:400,color:T.textMuted}}>— click any to apply</span>
+          ✨ URL Suggestions <span style={{fontSize:10,fontWeight:400,color:T.textMuted}}>— generated locally from the URL, not AI-generated</span>
         </div>
 
         {/* Title suggestion */}
@@ -1507,19 +1528,6 @@ function ShortenView({ onCreated }) {
           </div>
         </div>}
 
-        {/* TTL suggestion */}
-        {aiSuggestions.ttl_suggestion&&<div>
-          <div style={{fontSize:10,color:T.textMuted,marginBottom:5,textTransform:"uppercase",letterSpacing:1,fontWeight:600}}>Expiry recommendation</div>
-          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-            <button onClick={()=>applyAISuggestion("ttl",aiSuggestions.ttl_suggestion)}
-              style={{padding:"4px 12px",borderRadius:6,fontSize:11,cursor:"pointer",fontFamily:T.mono,
-                border:"1px solid rgba(0,160,223,.3)",fontWeight:600,
-                background:"rgba(0,160,223,.08)",color:"${T.accent}",transition:"all .15s"}}>
-              {aiSuggestions.ttl_suggestion}
-            </button>
-            {aiSuggestions.ttl_reason&&<span style={{fontSize:11,color:T.textMuted}}>— {aiSuggestions.ttl_reason}</span>}
-          </div>
-        </div>}
       </div>}
 
       <div style={{marginBottom:12}}>
@@ -1985,7 +1993,7 @@ function TestsView() {
     {!res&&<div className="card" style={{textAlign:"center",padding:44}}>
       <div style={{fontSize:36,marginBottom:12}}>🧪</div>
       <div style={{color:T.textMuted,fontSize:13}}>Press "Run All Tests" to execute.</div>
-      <div style={{color:T.textMuted,fontSize:11,marginTop:6}}>55 tests across 9 suites · URLStore · RateLimiter · ValidationGate · AuditLog</div>
+      <div style={{color:T.textMuted,fontSize:11,marginTop:6}}>59 tests across 10 suites · URLStore · RateLimiter · ValidationGate · AuditLog · Chatbot · URL Suggestions</div>
     </div>}
     {res&&res.map(suite=><div key={suite.name} className="card" style={{padding:"14px 18px",marginBottom:10}}>
       <div className="suite-name">
@@ -2108,7 +2116,7 @@ function HealthView() {
     {name:"Audit Log",     metric:`${auditLog.getAll().length} operations logged`,dot:"dot-g"},
     {name:"ValidationGate",metric:"XSS · SSRF · Protocol · Reserved",           dot:"dot-g"},
     {name:"QR Generator",  metric:"Crypto-seeded · CSS render",                  dot:"dot-g"},
-    {name:"Test Suite",    metric:"55 tests · 9 suites · Jest-compatible",       dot:"dot-g"},
+    {name:"Test Suite",    metric:"59 tests · 10 suites · Jest-compatible",     dot:"dot-g"},
   ];
   return <div>
     <SectionHeader title="System Health" sub={`Updated ${new Date(ts).toLocaleTimeString()} · refreshes every 3s`}
@@ -2123,7 +2131,7 @@ function HealthView() {
       <div className="card-title">📋 Final Engineering Summary</div>
       <div style={{fontSize:12,color:T.textSub,lineHeight:1.85}}>
         <p style={{marginBottom:8}}><strong style={{color:T.text}}>Plan / Rationale:</strong> Built as a React SPA with isolated service classes (URLStore, RateLimiter, AuditLog) and a dedicated ValidationGate. Adapter pattern enables production swap to Redis + PostgreSQL without caller changes. Sliding window rate limiter prevents bulk link generation — critical in a financial services context where links may carry regulated content.</p>
-        <p style={{marginBottom:8}}><strong style={{color:T.text}}>Artifacts:</strong> Working prototype (8 views), Architecture diagram, Engineering Log (AI traceability, 8 entries), Unit test suite (55 tests / 9 suites), Three scenario writeups, API reference (HTTP 302), Live audit trail, Guardrail dashboard.</p>
+        <p style={{marginBottom:8}}><strong style={{color:T.text}}>Artifacts:</strong> Working prototype (8 views), Architecture diagram, Engineering Log (AI traceability, 8 entries), Unit test suite (59 tests / 10 suites), Three scenario writeups, API reference (HTTP 302), Live audit trail, Guardrail dashboard.</p>
         <p style={{marginBottom:8}}><strong style={{color:T.text}}>Compliance alignment:</strong> Immutable audit log supports SEC Rule 17a-4 record-keeping requirements. All link destinations validated against SSRF blocklist — no internal Schwab infrastructure can be targeted. Rate limiting prevents bulk link generation that could be used to distribute phishing URLs at scale. TTL enforcement ensures regulated content links expire as required.</p>
         <p style={{marginBottom:8}}><strong style={{color:T.text}}>Risks / Trade-offs:</strong> In-memory store resets on refresh (acceptable for prototype — production: Redis + PostgreSQL). QR codes are CSS simulation (production: qrcode.js). Analytics synchronous (production: Kafka off redirect path). No auth layer (production: Schwab SSO / OAuth2 + API key scopes).</p>
         <p><strong style={{color:T.text}}>Production path:</strong> FastAPI + Redis (redirect, &lt;1ms) + PostgreSQL (analytics + audit, Multi-AZ) + CloudFront (edge cache, 4ms) + Kafka (click events, async) + Prometheus/Grafana (observability) + Schwab SSO integration. All adapter swaps are caller-transparent — zero API contract changes.</p>
@@ -2472,7 +2480,7 @@ LIVE DASHBOARD CONTEXT (as of right now):
 - Active links: ${links.map(l=>`/${l.code} (${l.clicks} clicks, ${l.title||"no title"})`).join(", ")}
 
 DASHBOARD CAPABILITIES:
-- Shorten tab: paste a URL + click "✨ AI Analyze" to auto-fill title, tags, alias suggestions, TTL
+- Shorten tab: paste a URL + generate local title, tag, and alias suggestions
 - Links tab: view/edit/delete all links, simulate clicks, edit tags inline
 - Analytics tab: click "🔍 AI Anomaly Check" to detect traffic spikes or suspicious patterns
 - Scenarios tab: three engineering scenarios (Greenfield, Brownfield, Ambiguous)
