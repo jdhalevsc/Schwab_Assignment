@@ -37,13 +37,16 @@ Built to demonstrate:
 | QR code generation | CSS-grid simulation (production: `qrcode.js`) |
 | Rate limiting | Sliding window, 10 req/min |
 
-### AI Features
+### Smart and AI Features
 | Feature | How |
 |---|---|
-| ✨ URL Summarizer | Claude auto-fills title, tags, TTL recommendation |
-| 🎯 Alias Suggester | Claude generates 4 slug-safe alias options |
+| ✨ URL Suggestions | Local extraction of a title, tags, and available aliases from the URL; no AI service required |
 | 🔍 Anomaly Detection | Claude analyzes click patterns for spikes/risks |
-| 💬 Dashboard Chatbot | Context-aware assistant with live link data |
+| 💬 Dashboard Chatbot | Predefined questions use local answers; open-ended questions use Claude |
+
+> **AI service note:** Anomaly detection and open-ended chatbot responses require an authenticated
+> server-side Anthropic API integration. The browser prototype does not include one; never put an
+> Anthropic API key in frontend code.
 
 ### External Integrations
 | Integration | Purpose | Mode |
@@ -156,7 +159,7 @@ Schwab_Assignment/
 
 ## Test Suite
 
-55 unit tests across 9 suites — run live in the **Tests** tab:
+59 unit tests across 10 suites — run live in the **Tests** tab:
 
 | Suite | Tests | Covers |
 |---|---|---|
@@ -168,6 +171,8 @@ Schwab_Assignment/
 | ValidationGate — Alias | 9 | regex, reserved words, length |
 | ValidationGate - Tags & Sanitize | 4 | tags, sanitize
 | AuditLog | 3 | record, filter, count operations |
+| Chatbot — Predefined Questions | 4 | local answers, normalization, API scope |
+| URL Suggestions | 4 | metadata extraction, alias validation, collision handling |
 | Chatbot - Predefined Questions | 4 | questions, grammer, API |
 
 All tests are Jest-compatible — copy to a Jest test file and run with no changes.
